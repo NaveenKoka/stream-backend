@@ -71,3 +71,4 @@ Thumbs.db
 venv/
 ENV/
 env/ 
+.env
