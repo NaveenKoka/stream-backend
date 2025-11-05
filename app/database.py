@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Database URL from environment or default
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:password@localhost:5432/stream_ui")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@rockon:5432/stream")
 
 # Create engine
 engine = create_engine(DATABASE_URL)

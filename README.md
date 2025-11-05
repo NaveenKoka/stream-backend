@@ -40,6 +40,10 @@ This backend provides API and WebSocket endpoints for the Stream UI admin panel.
    ```env
    DATABASE_URL=postgresql://user:password@localhost:5432/streamdb
    ```
+3. **Run database migration** (if you have existing data):
+   ```bash
+   python migrate_add_app_id.py
+   ```
 
 ---
 
@@ -52,9 +56,16 @@ uvicorn app.main:app --reload
 - The API will be available at: http://localhost:8000
 - WebSocket endpoint: ws://localhost:8000/ws/chat
 
+## 4. Seed Sample Data (Optional)
+
+To add sample apps to the database for testing:
+```bash
+python seed_apps.py
+```
+
 ---
 
-## 4. Useful Commands
+## 5. Useful Commands
 - **Run tests:**
   ```bash
   pytest
@@ -66,7 +77,7 @@ uvicorn app.main:app --reload
 
 ---
 
-## 5. Project Structure
+## 6. Project Structure
 - `app/` - Main FastAPI app, services, models, and utilities
 - `schemas/` - Pydantic schemas (if used)
 - `tests/` - Backend tests
@@ -74,6 +85,6 @@ uvicorn app.main:app --reload
 
 ---
 
-## 6. Notes
+## 7. Notes
 - Ensure the backend is running before using the frontend UI.
 - Update the `DATABASE_URL` as needed for your environment. 

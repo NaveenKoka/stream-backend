@@ -16,24 +16,39 @@ llm = ChatOpenAI(
 graph_builder = StateGraph(MessagesState)
 
 SYSTEM_PROMPT = (
-    "You are an expert assistant for designing custom applications across various domains. "
-    "Your job is to help users define what kind of application they want to build. "
-    "Start by asking what domain or industry they are focusing on (e.g., CRM, ERP, field service, e-commerce, project management, etc.). "
-    "Ask clarifying questions about the workflows, objects, entities, and requirements until you are confident you have all the details. "
+    "You are an expert assistant for designing custom applications, objects, workflows, and helping users with workflow execution. "
+    "You can help users with three main tasks:\n"
+    "1. CREATE OBJECTS: When users want to create data objects/entities (like Customer, Order, Product)\n"
+    "2. CREATE WORKFLOWS: When users want to create business processes\n"
+    "3. CREATE COMPLETE APPS: When users want to build full applications with multiple objects and workflows\n\n"
+    "IMPORTANT - Distinguish user intent:\n"
+    "- If user says 'create object', 'add object', 'new object', 'object for X' -> Focus ONLY on object creation\n"
+    "- If user says 'create workflow', 'add workflow', 'new workflow' -> Focus ONLY on workflow creation\n"
+    "- If user says 'create app', 'build app', 'new application' -> Create complete application\n\n"
+    "For OBJECT creation: Ask about the object name and what fields it should have. Then provide a simple config with just that object.\n"
+    "For WORKFLOW creation: Ask about the workflow steps and process. Then provide a config with just that workflow.\n"
+    "For APP creation: Start by asking what domain or industry they are focusing on (e.g., CRM, ERP, field service, e-commerce, project management, etc.). "
+    "Ask clarifying questions until you are confident you have all the details. "
+    "In user mode: Help users with workflow execution, record management, and provide context-aware assistance based on the current record and workflow state. "
     "IMPORTANT: You must ALWAYS respond with valid JSON in this exact format:\n"
     "{\n"
     '  "reply": "Your response text here",\n'
-    '  "type": "continue|admin|user",\n'
+    '  "type": "continue|admin|user|workflow",\n'
     '  "config": {}\n'
     "}\n\n"
     "Response types:\n"
     "- 'continue': When you need more information from the user (ask clarifying questions)\n"
     "- 'admin': When you have enough information and are ready to show the admin interface\n"
-    "- 'user': For general user responses\n\n"
+    "- 'user': For general user responses\n"
+    "- 'workflow': For workflow execution responses with record context\n\n"
     "For 'admin' type responses:\n"
     "- Include bullet points in the reply explaining what you're doing\n"
     "- Put the complete JSON schema in the 'config' field with objects and workflows\n"
-    "If the user asks about anything else, politely refuse and remind them you only help with custom app creation. "
+    "For 'workflow' type responses:\n"
+    "- Provide context-aware assistance based on the current record and workflow\n"
+    "- Help with form filling, record updates, and workflow navigation\n"
+    "- Include relevant record data in the response\n"
+    "If the user asks about anything else, politely refuse and remind them you only help with custom app creation and workflow execution. "
     "If the user says anything like 'decide by yourself', 'you decide', 'no specifics', 'default', or does not provide more details after 2 clarifying questions, IMMEDIATELY proceed to generate a default schema for a common application type and reply with type 'admin'. Do NOT ask for more details. Make reasonable assumptions based on common business applications.\n"
     "Example:\n"
     "User: Decide by yourself\n"
@@ -48,6 +63,9 @@ class ChatContext:
         self.user: Dict[str, Any] = {}
         self.nlp: Dict[str, Any] = {}
         self.message_count = 0
+        self.current_record: Dict[str, Any] = {}
+        self.current_workflow: Dict[str, Any] = {}
+        self.workflow_state: Dict[str, Any] = {}
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -57,7 +75,10 @@ class ChatContext:
             },
             "memory": self.memory,
             "user": self.user,
-            "nlp": self.nlp
+            "nlp": self.nlp,
+            "current_record": self.current_record,
+            "current_workflow": self.current_workflow,
+            "workflow_state": self.workflow_state
         }
     
     def update_memory(self, key: str, value: Any, lifespan: int = 1):
@@ -97,6 +118,37 @@ async def handle_chat(messages=None, session_id: str = "default"):
     context = context_store[session_id]
     context.message_count += 1
     context.cleanup_expired_memory()
+    
+    # Check for workflow execution messages
+    if messages and len(messages) > 0:
+        last_message = messages[-1]
+        if last_message.get("role") == "user" and last_message.get("content"):
+            try:
+                # Try to parse as JSON for workflow execution
+                message_data = json.loads(last_message["content"])
+                if message_data.get("type") == "workflow_execution":
+                    # Update context with workflow and record data
+                    context.current_workflow = message_data.get("workflow", {})
+                    context.current_record = message_data.get("recordData", {})
+                    context.workflow_state = {
+                        "formData": message_data.get("formData", {}),
+                        "currentStep": message_data.get("currentStep", 0),
+                        "recordId": message_data.get("recordId")
+                    }
+                    
+                    # Create a context-aware prompt for workflow assistance
+                    workflow_prompt = f"""
+Current Workflow: {context.current_workflow.get('name', 'Unknown')}
+Current Step: {context.workflow_state.get('currentStep', 0) + 1}
+Current Record: {json.dumps(context.current_record, indent=2)}
+Form Data: {json.dumps(context.workflow_state.get('formData', {}), indent=2)}
+
+Please provide context-aware assistance for this workflow execution.
+"""
+                    last_message["content"] = workflow_prompt
+            except (json.JSONDecodeError, KeyError):
+                # Not a workflow execution message, proceed normally
+                pass
     
     # Prepare the input for the graph with context
     context_data = context.to_dict()
